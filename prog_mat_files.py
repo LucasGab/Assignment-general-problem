@@ -5,6 +5,7 @@ import time
 import random
 import os
 import copy
+import gurobipy
 
 #Type a instaces to resolve
 folder = 'instances'
@@ -13,8 +14,7 @@ os.chdir(f'{folder}/')
 excelFile = Workbook()
 sheet1 = excelFile.active
 sheet1.title = f"{folder}_results"
-
-sheet1.append(("Arquivo","Tamanho Agentes","Tamanho Tarefas","Tempo de resolução","Resultado"))
+sheet1.append(("Arquivo","Tamanho Agentes","Tamanho Tarefas","Tempo de resolução","Melhor Solução"))
 
 
 # The number n of agents and tasks
@@ -37,11 +37,13 @@ agentsCapacity = []
 # Get a license: https://www.gurobi.com/academia/academic-program-and-licenses/
 # Use the license with 'grbgetkey'
 # Run /opt/gurobi912/linux64/ sudo python3 setup.py install
-# export GUROBI_HOME="/opt/gurobi912/linux64"
+# export GUROBI_HOME="/opt/gurobi950/linux64"
 # export PATH="${PATH}:${GUROBI_HOME}/bin"
 # export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${GUROBI_HOME}/lib"
-gurobiSolver = getSolver('GUROBI',msg=False)
+gurobiSolver = getSolver('GUROBI',timeLimit=3*60)
 solverName = 'GUROBI'
+solverType = "manual"
+
 # Setting the resolve solver
 resolveSolver = gurobiSolver
 
@@ -57,8 +59,8 @@ def costValue(agent,task):
 
 # Returns the total capacity value of an agent "i"
 def capacityValue(agent):
-    global agentsCost
-    return agentsCost[agent]
+    global agentsCapacity
+    return agentsCapacity[agent]
 
 # It uses pulp library, to solve with CBC and GUROBI
 def resolvePulp(filename):
@@ -68,6 +70,7 @@ def resolvePulp(filename):
     global totalAgent
     global totalTask
     global sheet1
+    global solverType
 
     funcOptimization = LpMaximize
     # Defines the problem to resolve
@@ -107,26 +110,56 @@ def resolvePulp(filename):
         problem += (lpSum([(agentsExectution[agent][task]*costValue(agent,task)) for task in tasksRange]) <= capacityValue(agent), f"Agent_Limit_{agent}")
 
     
+    if solverType == "manual":
+        # Disable pré proccess
+        gurobipy.setParam("Presolve", 0)
+        # Disable MIP cuts
+        gurobipy.setParam("Cuts", 0)
+        # Disable Heuristics
+        gurobipy.setParam("Heuristics", 0)
+
     print(f"\nSolver: {solverName}:\n")
     start = time.time()
     # Solve the problem
     problem.solve(resolveSolver)
 
+    end = time.time()
     total_sum = 0
 
+    sheetResult = excelFile.create_sheet(title=f"Resultados_{filename}_individuais")
+    sheetResultIndividual = excelFile.create_sheet(title=f"Resultados_{filename}_individuais_comp")
+    sheetResult.append(("Agente","Tarefas"))
+    sheetResultIndividual.append(("Agente","Limite Agente","Total de Tarefas","Soma das Tarefas","Capacidade consumida"))
+    taskArray = []
+    taskSum = 0
+    totalTasks = 0
+    consumedCapacity = 0
     # Calculates the total sum
     for agent in agentsRange:
+        taskArray = []
+        taskSum = 0
+        totalTasks = 0
+        consumedCapacity = 0
         for task in tasksRange:
             if agentsExectution[agent][task].value() == 1:
-                print(f"Agent: {agent} executed the task: {task}")
+                # print(f"Agent: {agent} executed the task: {task}")
+                taskArray.append(task)
+                taskSum += satisfactionValue(agent,task)
                 total_sum += satisfactionValue(agent,task)
+                consumedCapacity += costValue(agent,task)
+                totalTasks += 1
+        sheetResult.append([agent] + taskArray)
+        sheetResultIndividual.append([agent,capacityValue(agent),totalTasks,taskSum,consumedCapacity])
     
     print(f"The maximization returned a summation of: {total_sum}")
-    end = time.time()
     print(f"Time Elapsed: {end-start}")
     sheet1.append((str(filename),str(totalAgent),str(totalTask),str(end-start),str(total_sum)))
 
 for filename in os.listdir(os.getcwd()):
+  excelInstance = Workbook()
+  sheetInit = excelInstance.active
+  sheetInit.title = f"values"
+  sheetInit.append(("Tamanho Agentes","Tamanho Tarefas"))
   with open(os.path.join(os.getcwd(), filename), 'r') as f:
     agentsSatisfaction = []
     agentsCost = []
@@ -146,6 +179,7 @@ for filename in os.listdir(os.getcwd()):
             values = line.split()
             totalAgent = int(values[0])
             totalTask = int(values[1])
+            sheetInit.append((totalAgent,totalTask))
             print(f"Total Agents: {totalAgent}")
             print(f"Total Tasks: {totalTask}")
         else:
@@ -162,7 +196,37 @@ for filename in os.listdir(os.getcwd()):
             agentNumber+=1
 
         lineNumber+=1
-    resolvePulp(filename)
+
+    # Write Agent satisfaction sheet
+    agentIndex = 0
+    sheetSatisfaction = excelInstance.create_sheet(title="Satisfação")
+    sheetSatisfaction.append(["Tarefa (Satisfação):"]+list(range(totalTask)))
+    sheetSatisfaction.append(("Agente",))
+    for agentSatisfaction in agentsSatisfaction:
+        sheetSatisfaction.append([agentIndex] + agentSatisfaction)
+        agentIndex+=1
+    
+    # Write Agent cost sheet
+    agentIndex = 0
+    sheetCost = excelInstance.create_sheet(title="Custo")
+    sheetCost.append(["Tarefa (Custo):"]+list(range(totalTask)))
+    sheetCost.append(("Agente",))
+    for agentCost in agentsCost:
+        sheetCost.append([agentIndex] + agentCost)
+        agentIndex+=1
     
 
-excelFile.save(f"../{folder}_{solverName}_results.xlsx")
+    # Write Agent capacity sheet
+    agentIndex = 0
+    sheetCapacity = excelInstance.create_sheet(title="Capacidade")
+    sheetCapacity.append(("Agente","Capacidade"))
+    for agentCapacity in agentsCapacity:
+        sheetCapacity.append((agentIndex,agentCapacity))
+        agentIndex+=1
+
+    excelInstance.save(f"../instances_values/{filename}_values.xlsx")
+    resolvePulp(filename)
+    
+    
+
+excelFile.save(f"../{folder}_{solverName}_{solverType}_results.xlsx")
