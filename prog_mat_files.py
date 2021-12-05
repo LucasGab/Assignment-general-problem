@@ -111,12 +111,27 @@ def resolvePulp(filename):
 
     
     if solverType == "manual":
-        # Disable pré proccess
-        gurobipy.setParam("Presolve", 0)
-        # Disable MIP cuts
-        gurobipy.setParam("Cuts", 0)
-        # Disable Heuristics
-        gurobipy.setParam("Heuristics", 0)
+        # Disable pre proccess
+        # gurobipy.setParam("Presolve", 0)
+        
+        # Change the way the variables are branched
+        # Strong Branching
+        # gurobipy.setParam("VarBranch",3)
+        # Maximum Infeasibility Branching
+        # gurobipy.setParam("VarBranch",2)
+        
+        # Change the node exploration strategy
+        # Down brach first
+        # gurobipy.setParam("BranchDir", -1)
+        # Up branch first
+        # gurobipy.setParam("BranchDir", 1)
+        
+        # Disable all MIP cuts
+        #gurobipy.setParam("Cuts", 0)
+        # Activate MIR cuts aggressively
+        #gurobipy.setParam("MIRCuts", 2)
+        # Activate Cover cuts aggressively
+        #gurobipy.setParam("CoverCuts", 2)
 
     print(f"\nSolver: {solverName}:\n")
     start = time.time()
